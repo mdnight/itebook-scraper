@@ -36,7 +36,7 @@ async def parse_and_write():
     await fetch_book_info_iteratively(book_links)
 
 
-async def fetch_book_info_iteratively(book_links: List[str], n=20):
+async def fetch_book_info_iteratively(book_links: List[str], n=50):
     fetched, total = 0, len(book_links)
     book_links = [book_links[i:i + n] for i in range(len(book_links) // n)]
     for chunk in book_links:

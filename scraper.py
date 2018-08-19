@@ -1,8 +1,9 @@
 import asyncio
 import logging
 
-from bs4 import BeautifulSoup
 from typing import List, TYPE_CHECKING
+from bs4 import BeautifulSoup
+from tornado.httpclient import HTTPRequest
 
 if TYPE_CHECKING:
     from tornado.httpclient import AsyncHTTPClient
@@ -19,12 +20,15 @@ class Scraper:
 
     @classmethod
     async def get_book_page_links(cls, http_client: 'AsyncHTTPClient', category_url: str) -> List[str]:
-        response = await http_client.fetch(category_url)
+        request = HTTPRequest(category_url,
+                              connect_timeout=60,
+                              request_timeout=60)
+        response = await http_client.fetch(request)
         soup = BeautifulSoup(response.body.decode(), 'html.parser')
         pagination_range = soup.body.select('.pagination')[0].find_all('a')[-1].text
         futures = []
         for page_num in range(1, int(pagination_range) + 1):
-            futures.append(http_client.fetch(f'{category_url}page/{page_num}/'))
+            futures.append(http_client.fetch(f'{category_url}/page/{page_num}/'))
         result = []
         for future in asyncio.as_completed(futures):
             try:
@@ -52,7 +56,7 @@ class Scraper:
             book_info = dict(zip([item.text for item in bs.body.dl.find_all('dt')],
                                  [item.text for item in bs.body.dl.find_all('dd')]))
         except Exception as e:
-            LOGGING.error(f'Book info parsing error: {e}')
+            LOGGING.error(f'{bs.title.string}. Book info parsing error: {e}')
             return
         return {
             'single_title': bs.body.find(class_='single-title').text,
