@@ -1,6 +1,12 @@
 import logging
+from enum import Enum
 from tornado.httpclient import AsyncHTTPClient
 from typing import Optional, Tuple
+
+
+class ScrapingType(Enum):
+    books = 1
+    categories = 2
 
 
 async def fetch_book(url: str) -> Optional[Tuple[str, str]]:

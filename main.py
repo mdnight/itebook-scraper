@@ -1,13 +1,15 @@
 import asyncio
+import click
 import logging
+from functools import partial
 
 from os import environ as _environ
 from tornado.ioloop import IOLoop
 from tornado.httpclient import AsyncHTTPClient
 from tornado.queues import Queue
-from typing import List
+from typing import List, Dict
 
-from helpers import fetch_book
+from helpers import fetch_book, ScrapingType
 from scraper import Scraper
 from storage import connect_to_db, insert_to_db, set_collection
 
@@ -25,15 +27,20 @@ q = Queue()
 END_MESSAGE = '_END_'
 
 
-async def parse_and_write():
+async def parse_and_write(scraping_type: ScrapingType):
     http_client = AsyncHTTPClient()
     response = await http_client.fetch(TARGET_URL)
-    category_links = Scraper.get_categories_urls(response.body.decode())
-    book_links = []
-    for category_url in category_links:
-        links = await Scraper.get_book_page_links(http_client, category_url)
-        book_links = [*book_links, *links]
-    await fetch_book_info_iteratively(book_links)
+    response_body = response.body.decode()
+    if scraping_type == ScrapingType.books:
+        category_links = Scraper.get_categories_urls(response_body)
+        book_links = []
+        for category_url in category_links:
+            links = await Scraper.get_book_page_links(http_client, category_url)
+            book_links = [*book_links, *links]
+        await fetch_book_info_iteratively(book_links)
+    elif scraping_type == ScrapingType.categories:
+        categories = Scraper.get_categories(response_body)
+        await send_categories_to_queue(categories)
 
 
 async def fetch_book_info_iteratively(book_links: List[str], n=50):
@@ -50,26 +57,42 @@ async def fetch_book_info_iteratively(book_links: List[str], n=50):
             book_data = Scraper.parse_book_info(page)
             if book_data:
                 await q.put(book_data)
-    q.put(END_MESSAGE)
+    await q.put(END_MESSAGE)
 
 
-async def save_to_db():
+async def send_categories_to_queue(categories):
+    for category in categories:
+        await q.put(category)
+        await asyncio.sleep(0.5)
+    await q.put(END_MESSAGE)
+
+
+async def save_to_db(collection_name: str = None):
     db = connect_to_db(DB_HOST, DB_PORT, DB_NAME, MONGO_INITDB_ROOT_USERNAME, MONGO_INITDB_ROOT_PASSWORD)
-    collection = set_collection(db, DB_COLLECTION_NAME)
-    async for book in q:
-        if book == END_MESSAGE:
+    collection_name = collection_name if collection_name else DB_COLLECTION_NAME
+    collection = set_collection(db, collection_name)
+    async for item in q:
+        if item == END_MESSAGE:
             q.task_done()
             return
         try:
-            await insert_to_db(collection, book)
+            await insert_to_db(collection, item)
         finally:
             q.task_done()
 
 
-def main():
+@click.command()
+@click.option('--type', prompt='What to scrape: books or categories', default='books')
+@click.option('--collection', prompt='Name of collection.', default=None)
+def main(type, collection):
     loop = IOLoop.instance()
-    asyncio.ensure_future(save_to_db())
-    loop.run_sync(parse_and_write)
+    scraping_type = ScrapingType[type]
+    if type and scraping_type == ScrapingType.categories:
+        collection = collection
+    else:
+        collection = None
+    asyncio.ensure_future(save_to_db(collection))
+    loop.run_sync(partial(parse_and_write, scraping_type))
 
 
 if __name__ == '__main__':

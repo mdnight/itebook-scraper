@@ -7,6 +7,7 @@ name = "pypi"
 "beautifulsoup4" = "*"
 motor = "*"
 tornado = "*"
+click = "*"
 
 [dev-packages]
 pylint = "*"

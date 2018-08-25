@@ -1,7 +1,7 @@
 import asyncio
 import logging
 
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Dict
 from bs4 import BeautifulSoup
 from tornado.httpclient import HTTPRequest
 
@@ -72,3 +72,20 @@ class Scraper:
             'title_photo': bs.body.img.attrs.get('src'),
             'description': bs.body.find(class_='entry-content').text,
         }
+
+    @staticmethod
+    def get_categories(html_doc: str) -> List[Dict]:
+        bs = BeautifulSoup(html_doc, 'html.parser')
+        result = []
+        for category in bs.body.select("#menu-item-65")[0].ul.children:
+            if category == '\n':
+                continue
+            if category.ul:
+                sub_categories = [sub_cat.a.text for sub_cat in category.ul.contents if sub_cat != '\n']
+            else:
+                sub_categories = []
+            result.append({
+                'category': category.a.text,
+                'subcategories': sub_categories
+            })
+        return result
